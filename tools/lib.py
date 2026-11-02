@@ -73,11 +73,20 @@ def blob_d(r, cx, cy, rx, ry, n=9, j=1.4):
 def circle(r, cx, cy, rad, stroke=INK, sw=2.2, fill="none"):
     return path(blob_d(r, cx, cy, rad, rad, 8, rad*.06), stroke, sw, fill)
 
-def squig(x1, x2, y, amp=3, step=9, stroke=ORANGE, sw=2.6):
+def squig(x1, x2, y, amp=3, step=9, stroke=ORANGE, sw=2.6, draw=0):
     d, x, up = f"M{x1},{y} ", x1, True
     while x < x2:
         d += f"Q{x+step/2:.1f},{y+(-amp if up else amp):.1f} {x+step:.1f},{y} "; x += step; up = not up
-    return path(d, stroke, sw)
+    if not draw: return path(d, stroke, sw)
+    return (f'<path d="{d}" fill="none" stroke="{stroke}" stroke-width="{sw}" stroke-linecap="round" stroke-linejoin="round" '
+            f'pathLength="1" stroke-dasharray="1 1"><animate attributeName="stroke-dashoffset" values="1;0;0;1" '
+            f'keyTimes="0;.22;.82;1" dur="{draw}s" repeatCount="indefinite"/></path>')
+
+def sparkle(x, y, s=1.0, dur=3.0, begin=0.0, color=ORANGE):
+    d = f"M0,-9 Q1.2,-1.2 9,0 Q1.2,1.2 0,9 Q-1.2,1.2 -9,0 Q-1.2,-1.2 0,-9Z"
+    return (f'<g transform="translate({x} {y}) scale({s})"><path d="{d}" fill="{color}"><animate attributeName="opacity" '
+            f'values=".15;1;.15" dur="{dur}s" begin="{begin}s" repeatCount="indefinite"/><animateTransform attributeName="transform" '
+            f'type="rotate" values="-12;12;-12" dur="{dur}s" begin="{begin}s" repeatCount="indefinite"/></path></g>')
 
 def arrow(r, x1, y1, x2, y2, bend=18, stroke=ORANGE, sw=2.4):
     dx, dy = x2-x1, y2-y1; L = math.hypot(dx, dy) or 1
@@ -152,7 +161,8 @@ def mascot(r, x, y, s=1.0, wave=False, look=0, face="smile"):
     o.append(rect(r, -30, -102, 60, 46, INK, 2.6, WHITE))
     o.append(line(r, -34, -86, -34, -72, INK, 3) + line(r, 34, -86, 34, -72, INK, 3))
     for ex in (-12, 12):
-        o.append(circle(r, ex, -82, 7.5, INK, 2.2, WHITE) + f'<circle cx="{ex+look}" cy="-81" r="3" fill="{INK}"/>')
+        o.append(circle(r, ex, -82, 7.5, INK, 2.2, WHITE) + f'<circle cx="{ex+look}" cy="-81" r="3" fill="{INK}"><animate attributeName="cx" values="{ex+look-2};{ex+look+2};{ex+look-2}" dur="6s" repeatCount="indefinite"/>'
+                  f'<animate attributeName="r" values="3;3;.4;3;3" keyTimes="0;.88;.92;.96;1" dur="4.5s" repeatCount="indefinite"/></circle>')
     if face == "smile": o.append(path("M-10,-67 Q0,-60 10,-67", INK, 2.4))
     elif face == "oh": o.append(circle(r, 0, -65, 3.5, INK, 2))
     else: o.append(path("M-9,-65 L-4,-68 L1,-64 L6,-68 L10,-65", INK, 2.2))
@@ -199,6 +209,8 @@ def arduino(r, x, y, rot=0, s=1.0):
     for i in range(10):
         o.append(f'<rect x="{40+i*9}" y="6" width="6" height="8" fill="{INK}"/><rect x="{40+i*9}" y="90" width="6" height="8" fill="{INK}"/>')
     o.append(T(75, 28, "UNO", 13, ORANGE, "middle", cls="m"))
+    for k, (cx_, du) in enumerate([(122, .8), (132, 1.3)]):
+        o.append(f'<circle cx="{cx_}" cy="22" r="2.6" fill="{ORANGE}"><animate attributeName="opacity" values="1;.1;1" dur="{du}s" repeatCount="indefinite"/></circle>')
     return f'<g transform="translate({x} {y}) rotate({rot}) scale({s})">' + "".join(o) + "</g>"
 
 def wire(r, pts, stroke=ORANGE, sw=2.6, dash=""):
@@ -206,8 +218,13 @@ def wire(r, pts, stroke=ORANGE, sw=2.6, dash=""):
     for i in range(1, len(pts)):
         px, py = pts[i-1]; qx, qy = pts[i]
         d += f"Q{(px+qx)/2+r.uniform(-6,6):.1f},{(py+qy)/2+r.uniform(-6,6):.1f} {qx},{qy} "
-    ex = f'stroke-dasharray="{dash}"' if dash else ""
-    return path(d, stroke, sw, extra=ex) + f'<circle cx="{pts[0][0]}" cy="{pts[0][1]}" r="4" fill="{stroke}"/><circle cx="{pts[-1][0]}" cy="{pts[-1][1]}" r="4" fill="{stroke}"/>'
+    if dash:
+        per = sum(float(v) for v in dash.split())
+        w = (f'<path d="{d}" fill="none" stroke="{stroke}" stroke-width="{sw}" stroke-linecap="round" stroke-dasharray="{dash}">'
+             f'<animate attributeName="stroke-dashoffset" values="0;-{per:g}" dur="1s" repeatCount="indefinite"/></path>')
+    else:
+        w = path(d, stroke, sw)
+    return w + f'<circle cx="{pts[0][0]}" cy="{pts[0][1]}" r="4" fill="{stroke}"/><circle cx="{pts[-1][0]}" cy="{pts[-1][1]}" r="4" fill="{stroke}"/>'
 
 def circuit_line(r, x0, x1, y, stroke=ORANGE):
     """horizontal wire with resistor, capacitor and LED sprinkled in"""
@@ -227,14 +244,23 @@ def circuit_line(r, x0, x1, y, stroke=ORANGE):
 def icon(r, kind, x, y):
     g = f'<g transform="translate({x} {y})">'
     if kind == "drawer":
-        g += rect(r, -22, -16, 44, 32, INK, 2.2, WHITE) + rect(r, -8, -4, 16, 7, ORANGE, 2.2, ORANGE_L)
+        g += rect(r, -22, -16, 44, 32, INK, 2.2, WHITE)
+        g += ('<g>' + rect(r, -8, -4, 16, 7, ORANGE, 2.2, ORANGE_L)
+              + '<animateTransform attributeName="transform" type="translate" values="0 0;0 4;0 0" keyTimes="0;.5;1" dur="3s" repeatCount="indefinite"/></g>')
     elif kind == "bulb":
         g += circle(r, 0, -6, 14, INK, 2.2, ORANGE_L) + rect(r, -6, 8, 12, 9, INK, 2, WHITE)
-        g += "".join(line(r, a*20, -6 + b*20, a*28, -6 + b*28, ORANGE, 2.2) for a, b in [(0, -1), (-.8, -.7), (.8, -.7), (-1, 0), (1, 0)])
+        g += ('<g>' + "".join(line(r, a*20, -6 + b*20, a*28, -6 + b*28, ORANGE, 2.2) for a, b in [(0, -1), (-.8, -.7), (.8, -.7), (-1, 0), (1, 0)])
+              + '<animate attributeName="opacity" values="1;.15;1" dur="2s" repeatCount="indefinite"/></g>')
     elif kind == "chart":
-        g += "".join(rect(r, -20+i*14, 14-h, 10, h, INK, 2, ORANGE_L if i == 1 else WHITE) for i, h in enumerate([14, 28, 20]))
+        for i, h in enumerate([14, 28, 20]):
+            cx_ = -15 + i*14
+            g += (f'<g transform="translate({cx_} 14)"><g><animateTransform attributeName="transform" type="scale" values="1 1;1 {1.35 if i != 1 else .7};1 1" '
+                  f'dur="{2.4+i*.5}s" repeatCount="indefinite"/><g transform="translate({-cx_} -14)">'
+                  + rect(r, -20+i*14, 14-h, 10, h, INK, 2, ORANGE_L if i == 1 else WHITE) + '</g></g></g>')
     elif kind == "pencil":
-        g += f'<g transform="rotate(-40)">' + rect(r, -6, -26, 12, 42, INK, 2.2, ORANGE_L) + path("M-6,16 L0,28 L6,16", INK, 2.2, WHITE) + line(r, -6, -18, 6, -18, INK, 2) + "</g>"
+        g += ('<g transform="rotate(-40)"><g>' + rect(r, -6, -26, 12, 42, INK, 2.2, ORANGE_L) + path("M-6,16 L0,28 L6,16", INK, 2.2, WHITE)
+              + line(r, -6, -18, 6, -18, INK, 2)
+              + '<animateTransform attributeName="transform" type="rotate" values="0 0 28;-9 0 28;5 0 28;0 0 28" dur="2.2s" repeatCount="indefinite"/></g></g>')
     elif kind == "robot":
         g += f'<g transform="translate(0 26)">' + mascot(r, 0, 0, .52) + "</g>"
     return g + "</g>"
